@@ -30,8 +30,12 @@ test('adjacent proxy validators also require every coordinate explicitly', () =>
   assert.equal(adsbLolFallbackAnchor({ url: '?lon=12.5' }), null);
 });
 
-test('new data proxies install the same routes in dev and preview servers', () => {
-  const config = createViteConfig({ mode: 'test' });
+test('new data proxies install the same routes in dev and preview servers', async () => {
+  // The config factory is async: it defers loading `vite` and
+  // `vite-plugin-cesium` until called, so api/[...path].js can import this
+  // module's proxy plugins from a plain Node runtime without pulling the Vite
+  // toolchain into the serverless bundle.
+  const config = await createViteConfig({ mode: 'test' });
   const byName = new Map(config.plugins.map((plugin) => [plugin.name, plugin]));
   for (const name of [
     'rocket-launches-proxy',

@@ -42,8 +42,10 @@ import {
 import { filterTrailing24h, parseFirmsCsv } from './src/data/firmsCsv.js';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { defineConfig, loadEnv } from 'vite';
-import cesium from 'vite-plugin-cesium';
+// `vite` and `vite-plugin-cesium` are imported lazily inside the default
+// export instead of here: api/[...path].js reuses the proxy plugins in this
+// file from a plain Node (Vercel) runtime, where the Vite toolchain is
+// neither installed nor needed.
 import { normalizeRadioCountryInput } from './src/data/radioCountry.js';
 import {
   normalizeRegionalArticles,
@@ -1248,7 +1250,7 @@ export function createRadioProxyMiddleware({ fetchImpl = null, lookupImpl = look
   };
 }
 
-function radioBrowserProxy() {
+export function radioBrowserProxy() {
   const middleware = createRadioProxyMiddleware();
   const install = (server) => {
     server.middlewares.use('/api/radio', middleware);
@@ -1495,7 +1497,7 @@ function buildOpenSkyHeaders({ cacheStatus, requestedMode, usedMode, reason, sta
  * beats an empty satellites layer). Pattern mirrors openSkyProxy's
  * cache+serve-stale. Adapted from skylight's TleStore (MIT).
  */
-function celestrakProxy() {
+export function celestrakProxy() {
   const TLE_TTL_MS = 6 * 3600_000;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache');
   const mem = new Map(); // group -> { at: epochMs, body: string }
@@ -1608,7 +1610,7 @@ export function launchLibraryRequestHeaders(token = process.env.LL2_API_TOKEN) {
 }
 
 /** Proxy the public Launch Library 2 recent-launch feed server-side. */
-function rocketLaunchesProxy() {
+export function rocketLaunchesProxy() {
   const ttlMs = LL2_CACHE_TTL_MS;
   const maxResponseBytes = 12 * 1024 * 1024;
   const maxDiskCacheBytes = 24 * 1024 * 1024;
@@ -1745,7 +1747,7 @@ function rocketLaunchesProxy() {
  *
  * @returns {import('vite').Plugin}
  */
-function tomtomProxy() {
+export function tomtomProxy() {
   const TILE_TTL_MS = 120_000;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache', 'tomtom');
   const BUDGET_PATH = path.join(CACHE_DIR, 'budget.json');
@@ -1972,7 +1974,7 @@ function tomtomProxy() {
  *
  * @returns {import('vite').Plugin}
  */
-function firmsProxy() {
+export function firmsProxy() {
   const TTL_MS = 30 * 60_000;
   const STATUS_TTL_MS = 5 * 60_000;
   const SOURCES = ['VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT', 'VIIRS_SNPP_NRT'];
@@ -2180,7 +2182,7 @@ function firmsProxy() {
  * Only missing/stale points go upstream; the response is rebuilt in exact
  * request order. Oversized requests (>256 points) are chunked sequentially.
  */
-function terrainHeightsProxy() {
+export function terrainHeightsProxy() {
   const TTL_MS = 30 * 24 * 3600_000;
   const CACHE_DIR = path.join(process.cwd(), '.gev-cache');
   const CACHE_PATH = path.join(CACHE_DIR, 'terrain-heights.json');
@@ -2328,7 +2330,7 @@ function terrainHeightsProxy() {
  * persisted to disk so restarts don't re-hammer it. Adapted from skylight
  * (MIT) server/src/enrich/routes.ts.
  */
-function adsbdbProxy() {
+export function adsbdbProxy() {
   const TTL_MS = 24 * 3600_000;
   const CACHE_PATH = path.join(process.cwd(), '.gev-cache', 'adsbdb.json');
   let cache = { routes: {}, aircraft: {} };
@@ -2582,7 +2584,7 @@ async function fetchOverpassPayload(body, maxResponseBytes = OVERPASS_MAX_RESPON
  *
  * @returns {import('vite').Plugin}
  */
-function overpassProxy() {
+export function overpassProxy() {
   return {
     name: 'overpass-proxy',
     configureServer(server) {
@@ -2907,7 +2909,7 @@ function openSkySourceIsStale(sourceEpochMs, now = Date.now()) {
  *
  * @returns {import('vite').Plugin}
  */
-function openSkyProxy() {
+export function openSkyProxy() {
   return {
     name: 'opensky-proxy',
     configureServer(server) {
@@ -3242,7 +3244,7 @@ function gbfsCacheControl(pathname) {
  *
  * @returns {import('vite').Plugin}
  */
-function gbfsProxy() {
+export function gbfsProxy() {
   return {
     name: 'gbfs-proxy',
     configureServer(server) {
@@ -4412,7 +4414,7 @@ export async function fetchCctvImageFromUpstream(url, {
  *
  * @returns {import('vite').Plugin}
  */
-function cctvProxy() {
+export function cctvProxy() {
   /** @type {Map<string,{id:string,status:string,sourceKind:string,label:string,message:string,updatedAt:number}>} */
   const health = new Map();
   /** Cap on health map entries to prevent unbounded growth. Sized to cover the
@@ -4705,7 +4707,7 @@ function cctvProxy() {
  *
  * @returns {import('vite').Plugin}
  */
-function adsbLolProxy() {
+export function adsbLolProxy() {
   /** @type {string|null} Cached upstream JSON body. */
   let _cache = null;
   /** @type {number} Epoch-ms when the cache was populated. */
@@ -4755,7 +4757,7 @@ function adsbLolProxy() {
  * the Vite server keeps one backend websocket open and exposes a same-origin
  * JSON snapshot to the Cesium layer.
  */
-function aisLiveProxy() {
+export function aisLiveProxy() {
   function install(middlewares) {
     middlewares.use('/api/ais-live', async (req, res) => {
       try {
@@ -4850,7 +4852,7 @@ function aisLiveProxy() {
  *   of real history per aircraft. Treat as best-effort; data is ODbL —
  *   credit "adsb.lol (ODbL)" in the UI.
  */
-function trackBackfillProxies() {
+export function trackBackfillProxies() {
   const TRACK_CACHE_MS = 60000;
   const TRACK_CACHE_MAX = 200;
   const RESPONSE_CAP_BYTES = 5 * 1024 * 1024;
@@ -4957,7 +4959,7 @@ function trackBackfillProxies() {
  * Keeps OPENAI_API_KEY server-side while the browser connects to the
  * Realtime API over WebRTC with a short-lived secret.
  */
-function openAiRealtimeProxy() {
+export function openAiRealtimeProxy() {
   function install(middlewares) {
     middlewares.use('/api/openai/hud-summary', async (req, res) => {
       if (req.method !== 'POST') {
@@ -5271,7 +5273,7 @@ function readRequestBody(req, maxBytes = 1024 * 1024) {
  * Cesium feature metadata. Nearby Search supplies the names around the actual
  * screen-space target without exposing the Google API key in the request.
  */
-function googlePlacesContextProxy() {
+export function googlePlacesContextProxy() {
   function install(middlewares) {
     middlewares.use('/api/google/nearby-places', async (req, res) => {
       if (req.method !== 'GET') {
@@ -6770,7 +6772,7 @@ function trimMilitaryInstallationCache() {
   }
 }
 
-function militaryInstallationsProxy() {
+export function militaryInstallationsProxy() {
   async function refresh(box, key) {
     const bbox = `${box.south},${box.west},${box.north},${box.east}`;
     const ql = `[out:json][timeout:20];(nwr["military"~"^(airfield|naval_base|range|barracks|base)$"](${bbox});nwr["landuse"="military"](${bbox}););out center tags geom ${MILITARY_INSTALLATION_ELEMENT_CAP};`;
@@ -7100,7 +7102,7 @@ export function regionalBriefHasAnySource({ place, weather, news } = {}) {
   return Boolean(place || weather || (news && news.status !== 'unavailable'));
 }
 
-function regionalBriefProxy() {
+export function regionalBriefProxy() {
   async function refresh(point, key) {
     const [placeResult, weatherResult] = await Promise.allSettled([
       fetchRegionalPlace(point),
@@ -7189,7 +7191,7 @@ function regionalBriefProxy() {
   };
 }
 
-function weatherEffectsProxy() {
+export function weatherEffectsProxy() {
   async function refresh(point, key) {
     const weather = await fetchRegionalWeather(point);
     if (!weather) throw new Error('Weather observation unavailable');
@@ -7330,7 +7332,11 @@ function normalizeAisTimestamp(value) {
  * plugins, configures the dev server host/port, and exposes selected
  * API keys to the client as import.meta.env defines.
  */
-export default defineConfig(({ mode }) => {
+export default async ({ mode }) => {
+  const [{ loadEnv }, { default: cesium }] = await Promise.all([
+    import('vite'),
+    import('vite-plugin-cesium'),
+  ]);
   // Load only this checkout's dotenv files. Shell/Keychain values still win,
   // and no sibling workspace is consulted implicitly.
   const loaded = loadEnv(mode, __dirname, '');
@@ -7380,4 +7386,4 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1500,
     },
   };
-});
+};
