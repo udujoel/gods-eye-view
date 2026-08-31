@@ -24,14 +24,36 @@ inherits the fix.
 The app has **no authentication of its own**. Anyone who can load the page can
 spend your Google Maps and OpenAI quota. Do these first.
 
-1. **Restrict the Google Maps key.** Google Cloud Console → APIs & Services →
-   Credentials → your key:
-   - *Application restrictions* → **Websites**, and add your Vercel hostname
-     (`https://<project>.vercel.app/*`). The key is compiled into the browser
-     bundle by design and **is visible in devtools** — the referrer restriction,
-     not secrecy, is what protects it.
-   - *API restrictions* → restrict to **Map Tiles API** (plus Geocoding and
-     Places only if you want search and voice place lookup).
+1. **Restrict the Google Maps key — but mind the split.** `GOOGLE_MAPS_API_KEY`
+   is used from *both* sides in this project:
+
+   | Caller | Used for | Sends a `Referer`? |
+   |---|---|---|
+   | Browser bundle | Photorealistic 3D Tiles, Geocoding | Yes |
+   | Vercel function | Places (`/api/google/*`), Street View CCTV fallback | **No** |
+
+   A **Websites** (HTTP referrer) restriction therefore protects the browser
+   half and **breaks the server half** — Google rejects referrer-restricted keys
+   on server-to-server calls, so Places search and the Street View fallback
+   would start failing. Pick one:
+
+   - **Simplest — one key, no referrer restriction.** Leave *Application
+     restrictions* at **None** and lean entirely on *API restrictions* plus a
+     hard quota (step 2) and Vercel Authentication (step 5). Do this only while
+     the deployment is access-protected.
+   - **Safer — two keys.** Create a second, referrer-restricted key
+     (`https://<project>.vercel.app/*`) and use it for `GOOGLE_MAPS_API_KEY`,
+     which is what reaches the browser. The server-side Places and Street View
+     paths read the same variable today, so using two keys means editing
+     `vite.config.js` to read a separate server-side variable for those calls.
+
+   Either way set *API restrictions* to just what you use: **Map Tiles API**,
+   plus **Geocoding API** and **Places API (New)** only if you want search and
+   voice place lookup.
+
+   Note the key that reaches the browser is compiled into the bundle by design
+   and **is visible in devtools**. Restriction and quota, not secrecy, are what
+   protect it.
 2. **Set a hard quota**, not just an alert. APIs & Services → Map Tiles API →
    Quotas. A budget alert emails you *after* the money is spent; a quota cap
    stops the requests.

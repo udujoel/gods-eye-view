@@ -42,9 +42,11 @@ function useWritableCacheRoot() {
     fs.mkdirSync(root, { recursive: true });
     process.chdir(root);
     return root;
-  } catch {
+  } catch (err) {
     // A read-only temp dir is survivable: the proxies all treat their disk
-    // cache as best-effort and fall back to memory + upstream.
+    // cache as best-effort and fall back to memory + upstream. Worth a log
+    // line, because it shows up later as unexplained upstream chattiness.
+    console.warn('[gevApi] no writable cache root:', err?.message || err);
     return null;
   }
 }
@@ -178,6 +180,34 @@ export function describeRoutes() {
 }
 
 /**
+ * Rebuild the exact bytes a drained request carried.
+ *
+ * Vercel does not just buffer the body, it *parses* it: a JSON or
+ * form-urlencoded request arrives as an already-decoded object on `req.body`.
+ * Re-serializing that blindly as JSON would corrupt the form-encoded Overpass
+ * query (`data=[out:json]…`) into `{"data":"[out:json]…"}`, which the Overpass
+ * proxy rejects before it ever reaches upstream — so the re-encoding has to
+ * follow the request's own Content-Type.
+ *
+ * @param {import('node:http').IncomingMessage} req
+ * @returns {Buffer[]} zero or one chunk, ready for `Readable.from`
+ */
+function rawBodyOf(req) {
+  const body = req.body;
+  if (body === undefined || body === null) return [];
+  if (Buffer.isBuffer(body)) return [body];
+  if (ArrayBuffer.isView(body)) return [Buffer.from(body.buffer, body.byteOffset, body.byteLength)];
+  if (typeof body === 'string') return [Buffer.from(body)];
+  if (typeof body !== 'object') return [Buffer.from(String(body))];
+
+  const contentType = String(req.headers?.['content-type'] || '');
+  if (contentType.includes('application/x-www-form-urlencoded')) {
+    return [Buffer.from(new URLSearchParams(body).toString())];
+  }
+  return [Buffer.from(JSON.stringify(body))];
+}
+
+/**
  * Present a request to a handler under its mount-relative URL.
  *
  * Connect rewrites `req.url` in place, and so do we: prototype-cloning an
@@ -206,13 +236,7 @@ function prepareRequest(req, url) {
     return req;
   }
 
-  const body = req.body;
-  let raw = null;
-  if (Buffer.isBuffer(body)) raw = body;
-  else if (typeof body === 'string') raw = Buffer.from(body);
-  else if (body && typeof body === 'object') raw = Buffer.from(JSON.stringify(body));
-
-  const shim = Readable.from(raw ? [raw] : []);
+  const shim = Readable.from(rawBodyOf(req));
   shim.method = req.method;
   shim.headers = req.headers;
   shim.httpVersion = req.httpVersion;
@@ -253,12 +277,9 @@ function runHandler(handler, req, res) {
     res.on('finish', finish);
     res.on('close', finish);
     try {
-      Promise.resolve(handler(req, res, finish)).then(() => {
-        // A handler that returned without responding is declining the request;
-        // the loop moves on to the next mount.
-        if (res.writableEnded || res.headersSent) finish();
-        else finish();
-      }, fail);
+      // A handler that returns without responding is declining the request;
+      // the dispatch loop then moves on to the next mount.
+      Promise.resolve(handler(req, res, finish)).then(finish, fail);
     } catch (err) {
       fail(err);
     }
@@ -298,10 +319,12 @@ export async function handleGevApi(req, res) {
     if (rewritten === null) continue;
     try {
       await runHandler(entry.handler, prepareRequest(req, rewritten), res);
-    } catch {
+    } catch (err) {
+      // The client gets no upstream detail — an error string can carry the API
+      // key that was used — but the function log needs enough to diagnose it.
+      console.warn(`[gevApi] ${entry.route} failed:`, err?.name || 'Error', String(err?.message || err).slice(0, 200));
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        // Sanitized: upstream error text can carry the API key that was used.
         res.end(JSON.stringify({ error: 'proxy_failed', route: entry.route }));
       } else if (!res.writableEnded) {
         res.end();
