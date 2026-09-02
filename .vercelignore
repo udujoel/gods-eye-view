@@ -1,0 +1,6 @@
+# Build inputs only. The README capture GIFs are ~90% of the repo by size and
+# are never referenced by the app, and the QA harness is developer tooling.
+docs/
+scripts/fixtures/
+.gev-cache/
+.gev-logs/

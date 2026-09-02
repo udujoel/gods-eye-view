@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -21,9 +21,11 @@ export function assertNode24AllocationRuntime(version = process.versions.node) {
   return version;
 }
 
+/** Directories walked for unit tests, in stable order. */
+const TEST_ROOTS = Object.freeze(['src', 'server']);
+
 /** Discover repository unit tests in stable path order. */
 export function discoverUnitTestFiles(root = process.cwd()) {
-  const sourceRoot = path.join(root, 'src');
   const files = [];
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -34,7 +36,11 @@ export function discoverUnitTestFiles(root = process.cwd()) {
       }
     }
   };
-  visit(sourceRoot);
+  for (const name of TEST_ROOTS) {
+    const directory = path.join(root, name);
+    if (!existsSync(directory)) continue;
+    visit(directory);
+  }
   return files.sort();
 }
 
