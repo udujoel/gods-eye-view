@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-    "api/**": {
+    "api/gev.js": {
       "maxDuration": 60,
       "includeFiles": "{vite.config.js,config/**,src/**}"
     }
@@ -27,6 +27,12 @@
           "value": "public, max-age=31536000, immutable"
         }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/gev?__gevPath=:path*"
     }
   ]
 }
