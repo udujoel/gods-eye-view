@@ -6,11 +6,7 @@
   "functions": {
     "api/**": {
       "maxDuration": 60,
-      "includeFiles": [
-        "vite.config.js",
-        "config/**",
-        "src/**"
-      ]
+      "includeFiles": "{vite.config.js,config/**,src/**}"
     }
   },
   "headers": [
