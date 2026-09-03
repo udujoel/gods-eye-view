@@ -79,15 +79,28 @@ async function init() {
       Cesium.Ion.defaultAccessToken = cesiumToken;
     }
 
-    // Set Google Maps API key for 3D Tiles
-    const googleApiKey = import.meta.env.GOOGLE_MAPS_API_KEY;
-    if (!googleApiKey) {
-      throw new Error('GOOGLE_MAPS_API_KEY not found. Set it as an environment variable.');
+    // Google Maps API key — OPTIONAL. It buys two separate things: the
+    // photorealistic 3D tileset (metered per rendering session) and geocoding
+    // (place search, reverse geocode). Without it the app runs on the keyless
+    // OSM stack, or Bing + world terrain with a Cesium ion token, and every
+    // live data layer still works. Search-by-name and voice place lookup are
+    // what actually go dark.
+    const googleApiKey = String(import.meta.env.GOOGLE_MAPS_API_KEY || '').trim();
+    if (googleApiKey) {
+      Cesium.GoogleMaps.defaultApiKey = googleApiKey;
+      // Exposed globally for geocoding in locations.js
+      window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
+    } else {
+      console.info('[Init] No GOOGLE_MAPS_API_KEY — starting on the keyless OSM stack. '
+        + 'Google 3D and place search are unavailable; live layers are unaffected.');
     }
-    Cesium.GoogleMaps.defaultApiKey = googleApiKey;
 
-    // Expose API key globally for geocoding in locations.js
-    window.__GOOGLE_MAPS_API_KEY__ = googleApiKey;
+    // Which stack to START on. Booting on Google 3D creates its tileset, and
+    // that request is the billable event, so a deployment that wants to keep
+    // Google spend at zero can start elsewhere and still switch on demand.
+    const requestedStack = String(import.meta.env.GEV_DEFAULT_MAP_STACK || '').trim();
+    const defaultStack = requestedStack || (googleApiKey ? 'photoreal' : 'osm');
+    const startOnPhotoreal = defaultStack === 'photoreal' && !!googleApiKey;
 
     // Create the Cesium viewer with minimal chrome
     const viewer = new Cesium.Viewer('cesiumContainer', {
@@ -153,31 +166,45 @@ async function init() {
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
 
-    loaderStatus.textContent = 'Loading Google 3D Tiles...';
+    /** Build the Google tileset. Calling this is the billable session. */
+    const createGoogleTileset = () => Cesium.createGooglePhotorealistic3DTileset({
+      onlyUsingWithGoogleGeocoder: true,
+    });
+
     let tileset = null;
-    try {
-      // Load Google Photorealistic 3D Tiles
-      tileset = await Cesium.createGooglePhotorealistic3DTileset({
-        onlyUsingWithGoogleGeocoder: true,
-      });
-      viewer.scene.primitives.add(tileset);
-      // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
-      // Google Photorealistic 3D Tiles provide their own terrain/elevation.
-      viewer.scene.globe.show = false;
-    } catch (tileError) {
-      console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
-      const tileErrorDetail = describeError(tileError);
-      loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
-      // Keep Cesium globe visible as fallback instead of aborting the app.
+    if (startOnPhotoreal) {
+      loaderStatus.textContent = 'Loading Google 3D Tiles...';
+      try {
+        tileset = await createGoogleTileset();
+        viewer.scene.primitives.add(tileset);
+        // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
+        // Google Photorealistic 3D Tiles provide their own terrain/elevation.
+        viewer.scene.globe.show = false;
+      } catch (tileError) {
+        console.warn('[Init] Google 3D Tiles unavailable, falling back to Cesium globe:', tileError);
+        const tileErrorDetail = describeError(tileError);
+        loaderStatus.textContent = `Google 3D Tiles unavailable (${tileErrorDetail}). Continuing in fallback mode...`;
+        // Keep Cesium globe visible as fallback instead of aborting the app.
+        viewer.scene.globe.show = true;
+      }
+    } else {
+      // Starting on a globe stack: leave the globe visible and don't touch
+      // Google. The tileset is created lazily if the user picks Google 3D.
       viewer.scene.globe.show = true;
     }
+
+    // Intended to start on Google 3D but the tileset didn't load.
+    const photorealFailed = startOnPhotoreal && !tileset;
 
     loaderStatus.textContent = 'Initializing systems...';
 
     const mapStackController = new MapStackController(viewer, {
       googleTileset: tileset,
+      // Lets the map-source tray offer Google 3D even though this session
+      // didn't pay for it at boot.
+      googleTilesetFactory: (googleApiKey && !photorealFailed) ? createGoogleTileset : null,
       cesiumToken,
-      initialStack: tileset ? 'photoreal' : 'osm',
+      initialStack: tileset ? 'photoreal' : defaultStack,
       // Task 5 (height-datum fix): rebroadcast stack changes as a window
       // CustomEvent so data layers (CCTV per-regime ground resolution) can
       // react without coupling MapStackController to layer modules. Fires on
@@ -188,7 +215,10 @@ async function init() {
       },
       onError: (message) => console.warn('[MapStack]', message),
     });
-    await mapStackController.setStack(tileset ? 'photoreal' : 'osm', { silent: true });
+    await mapStackController.setStack(
+      tileset ? 'photoreal' : (photorealFailed ? 'osm' : defaultStack),
+      { silent: true },
+    );
 
     // Initialize the style manager (post-processing, HUD, locations, share links)
     const styleManager = new StyleManager(viewer, { mapStackController });

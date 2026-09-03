@@ -52,6 +52,7 @@ const REEARTH_TERRAIN_URL = 'https://terrain.reearth.land/cesium-mesh/ellipsoid'
 export class MapStackController {
   constructor(viewer, {
     googleTileset = null,
+    googleTilesetFactory = null,
     cesiumToken = '',
     initialStack = 'photoreal',
     onChange = null,
@@ -59,10 +60,16 @@ export class MapStackController {
   } = {}) {
     this.viewer = viewer;
     this.googleTileset = googleTileset;
+    // Deferred photoreal: when the session does not START on Google 3D, the
+    // tileset is created on the first switch to it instead of at boot.
+    // Creating it is itself the billable event — one root tileset request buys
+    // a rendering session — so booting on OSM must not quietly spend one.
+    this._googleTilesetFactory = typeof googleTilesetFactory === 'function' ? googleTilesetFactory : null;
+    this._googleTilesetPending = null;
     this.cesiumToken = String(cesiumToken || '').trim();
     this._onChange = onChange;
     this._onError = onError;
-    this._activeId = googleTileset ? initialStack : 'osm';
+    this._activeId = initialStack;
     this._imageryLayer = null;
     this._imageryProviders = new Map();
     this._isSwitching = false;
@@ -115,9 +122,11 @@ export class MapStackController {
    * @returns {string}
    */
   _unavailableReason(stack) {
-    return stack?.requiresIon
-      ? 'Cesium ion token required for Bing stacks'
-      : `${stack?.label || 'This map stack'} is unavailable`;
+    if (stack?.requiresIon) return 'Cesium ion token required for Bing stacks';
+    if (stack?.kind === 'photoreal') {
+      return 'Google Maps API key required for Google 3D';
+    }
+    return `${stack?.label || 'This map stack'} is unavailable`;
   }
 
   getStack(id) {
@@ -149,7 +158,7 @@ export class MapStackController {
   isStackAvailable(id) {
     const stack = this.getStack(id);
     if (!stack) return false;
-    if (stack.kind === 'photoreal') return !!this.googleTileset;
+    if (stack.kind === 'photoreal') return !!this.googleTileset || !!this._googleTilesetFactory;
     if (stack.requiresIon) return !!this.cesiumToken;
     return true;
   }
@@ -215,7 +224,33 @@ export class MapStackController {
     };
   }
 
+  /**
+   * Create the Google tileset if this session deferred it, coalescing
+   * concurrent switches onto one request so a double-click cannot bill twice.
+   * @returns {Promise<object|null>} the tileset, or null when unavailable
+   */
+  async _ensureGoogleTileset() {
+    if (this.googleTileset) return this.googleTileset;
+    if (!this._googleTilesetFactory) return null;
+    if (!this._googleTilesetPending) {
+      this._googleTilesetPending = (async () => {
+        const tileset = await this._googleTilesetFactory();
+        if (!tileset) throw new Error('Google 3D Tiles unavailable');
+        this.viewer.scene.primitives.add(tileset);
+        this.googleTileset = tileset;
+        return tileset;
+      })();
+      // A failed attempt must not poison every later switch.
+      this._googleTilesetPending.catch(() => { this._googleTilesetPending = null; });
+    }
+    return this._googleTilesetPending;
+  }
+
   async _activatePhotoreal(gen) {
+    await this._ensureGoogleTileset();
+    // A newer switch started while the tileset was loading; that call owns the
+    // scene now.
+    if (gen != null && gen !== this._switchGen) return;
     this._removeImageryLayer();
     if (this.googleTileset) this.googleTileset.show = true;
     this.viewer.scene.globe.show = false;

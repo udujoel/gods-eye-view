@@ -65,6 +65,49 @@ spend your Google Maps and OpenAI quota. Do these first.
 
 ---
 
+## Running without a Google Maps API key
+
+`GOOGLE_MAPS_API_KEY` is optional. It buys two unrelated things:
+
+| | Billing |
+|---|---|
+| Photorealistic 3D Tiles | **Metered.** One root tileset request buys a rendering session; 1,000/month free, then ~$6/1,000 |
+| Geocoding (place search, reverse geocode) | 10,000/month free, then ~$5/1,000 |
+
+Without it the app starts on the keyless **OSM** stack, and **every live data
+layer still works** — flights, military ADS-B, satellites, earthquakes, traffic,
+CCTV, radio, bikeshare, fires, launches, mapped installations — as do the
+bundled datasets, the sensor styles, the HUD, the detection overlay, cockpit
+view, the scene director and share links.
+
+What actually goes dark without the key:
+
+- Google 3D (photorealistic buildings and terrain)
+- Search-by-name, and voice place lookup — these are geocoding
+- The Street View fallback frame for cameras without a live feed
+- Google Places context in voice answers ("what is this building?")
+
+Add a free **Cesium ion** token and the globe gets Bing aerial imagery plus
+Cesium World Terrain — real imagery and real 3D relief with no Google
+involvement and no metered billing.
+
+### Keeping the key but not the tile spend
+
+Loading the page on Google 3D creates the tileset, and *that request is the
+billable event*. To keep geocoding (cheap, 10k free) while spending nothing on
+tiles, start on a different stack:
+
+```
+GEV_DEFAULT_MAP_STACK=osm          # or bing-aerial, bing-labels, photoreal
+```
+
+The app then boots on OSM and **Google 3D stays selectable in the map-source
+tray** — the tileset is created lazily on the first switch to it, so a session
+that never picks it never bills one. Unset, the variable preserves the original
+behaviour: Google 3D when a key is present, OSM when it isn't.
+
+---
+
 ## Environment variables
 
 Set these in **Project → Settings → Environment Variables**, then redeploy.
@@ -74,7 +117,8 @@ take effect.
 
 | Variable | Required | Effect if missing |
 |---|---|---|
-| `GOOGLE_MAPS_API_KEY` | **Yes** | App throws on startup and renders nothing |
+| `GOOGLE_MAPS_API_KEY` | No | Starts on keyless OSM; Google 3D and place search unavailable (see above) |
+| `GEV_DEFAULT_MAP_STACK` | No | Defaults to `photoreal` when a Google key is set, else `osm` |
 | `OPENAI_API_KEY` | No | Voice control and the AI HUD summary report unavailable |
 | `CESIUM_ION_TOKEN` | No | Bing imagery map stacks unavailable |
 | `TOMTOM_API_KEY` | No | Traffic falls back to its labeled simulation |
