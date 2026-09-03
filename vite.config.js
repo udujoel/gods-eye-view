@@ -7379,6 +7379,10 @@ export default async ({ mode }) => {
     define: {
       'import.meta.env.GOOGLE_MAPS_API_KEY': JSON.stringify(env.GOOGLE_MAPS_API_KEY),
       'import.meta.env.CESIUM_ION_TOKEN': JSON.stringify(env.CESIUM_ION_TOKEN),
+      // Which map stack the app starts on: 'photoreal' | 'bing-aerial' |
+      // 'bing-labels' | 'osm'. Booting on anything but 'photoreal' keeps
+      // Google Map Tiles spend at zero until someone picks Google 3D.
+      'import.meta.env.GEV_DEFAULT_MAP_STACK': JSON.stringify(env.GEV_DEFAULT_MAP_STACK),
     },
     build: {
       // The Cesium engine bundle is inherently large; raise the warning ceiling
